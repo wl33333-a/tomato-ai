@@ -6,21 +6,39 @@ import joblib
 import os
 
 # ================= 页面配置 =================
-st.set_page_config(page_title="番茄新鲜度无损预测系统", page_icon="🍅", layout="wide")
+st.set_page_config(page_title="番茄新鲜度无损预测系统", layout="centered")
 
-# 自定义 CSS 样式
+# 自定义 CSS 样式：限制宽度、压缩间距、美化边框
 st.markdown("""
     <style>
+    /* 限制页面最大宽度，使其在宽屏上居中且紧凑 */
+    .block-container {
+        max-width: 1000px;
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
     html, body, [class*="css"] { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
-    .main-title { font-size: 28px; font-weight: 600; color: #1E293B; border-bottom: 2px solid #CBD5E1; padding-bottom: 10px; margin-bottom: 25px; }
-    .section-title { font-size: 20px; font-weight: 600; color: #334155; margin-top: 15px; margin-bottom: 10px; }
-    .data-label { font-weight: bold; color: #475569; }
-    .data-value { color: #0F172A; font-family: monospace; }
+    .main-title { font-size: 26px; font-weight: 600; color: #1E293B; border-bottom: 2px solid #CBD5E1; padding-bottom: 10px; margin-bottom: 20px; }
+    .section-title { font-size: 18px; font-weight: 600; color: #334155; margin-top: 10px; margin-bottom: 10px; }
+    
+    /* 缩减 metric 的内边距 */
+    [data-testid="stMetricValue"] { font-size: 1.5rem; }
+    [data-testid="stMetricLabel"] { font-size: 0.9rem; }
+    
+    /* 美化提取特征的提示框 */
+    .feature-box {
+        background-color: #F8FAFC; 
+        padding: 12px; 
+        border-left: 4px solid #3B82F6; 
+        border-radius: 4px;
+        margin-top: 10px;
+        font-size: 14px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-title">基于智能膜的番茄新鲜度无损预测系统</div>', unsafe_allow_html=True)
-st.markdown("**系统说明**：上传智能膜图像，系统将自动提取颜色特征，并结合机器学习模型，反推番茄的预期颜色（Lab）、环境数据及新鲜度分类。")
+st.markdown("<p style='color:#64748B; font-size: 14px;'>系统说明：上传智能膜图像，系统将自动提取颜色特征，并结合机器学习模型，反推番茄的预期颜色（Lab）、环境数据及新鲜度分类。</p>", unsafe_allow_html=True)
 
 MODEL_PATH = "freshness_model.pkl"
 
@@ -53,22 +71,25 @@ def get_membrane_lab(img_bytes):
     return round(L, 2), round(a, 2), round(b, 2)
 
 # ================= 界面布局 =================
-col1, col2 = st.columns([1, 1])
+st.divider()
+
+# 输入区：左侧上传，右侧按钮
+col1, col2 = st.columns([1, 1.5])
 
 with col1:
     st.markdown('<div class="section-title">1. 图像数据输入</div>', unsafe_allow_html=True)
-    membrane_file = st.file_uploader("请上传智能膜图像 (JPG/PNG)", type=["jpg", "jpeg", "png"], label_visibility="collapsed")
+    membrane_file = st.file_uploader("请上传智能膜图像", type=["jpg", "jpeg", "png"], label_visibility="collapsed")
     
     if membrane_file is not None:
         img_bytes = membrane_file.getvalue()
-        st.image(img_bytes, caption="已加载样本图像", width=350)
+        st.image(img_bytes, caption="已加载样本图像", use_container_width=True)
         
         m_lab = get_membrane_lab(img_bytes)
         if m_lab:
             st.markdown(f"""
-            <div style="background-color: #F8FAFC; padding: 15px; border-left: 4px solid #3B82F6; margin-top: 15px;">
-                <span class="data-label">膜颜色特征提取结果：</span><br>
-                <span class="data-value">L* = {m_lab[0]} &nbsp;|&nbsp; a* = {m_lab[1]} &nbsp;|&nbsp; b* = {m_lab[2]}</span>
+            <div class="feature-box">
+                <b>膜颜色特征提取结果：</b><br>
+                L* = {m_lab[0]} &nbsp;|&nbsp; a* = {m_lab[1]} &nbsp;|&nbsp; b* = {m_lab[2]}
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -79,8 +100,6 @@ with col2:
     st.write("点击下方按钮，系统将运行随机森林模型进行多目标反推预测。")
     
     st.write("") 
-    st.write("")
-    
     if st.button("运行模型预测 (Run Prediction)", use_container_width=True, type="primary"):
         if membrane_file is None:
             st.error("请先上传智能膜图像。")
@@ -90,7 +109,6 @@ with col2:
             m_lab = get_membrane_lab(img_bytes)
             if m_lab:
                 models = joblib.load(MODEL_PATH)
-                # 【修复报错的核心点：把 lab_model 改为 reg_model】
                 reg_model = models['reg_model'] 
                 class_model = models['class_model']
                 
@@ -98,15 +116,11 @@ with col2:
                     '膜_L': m_lab[0], '膜_a': m_lab[1], '膜_b': m_lab[2]
                 }])
                 
-                # 1. 回归预测（同时得出番茄Lab + 环境数据）
                 pred_reg = reg_model.predict(input_data)[0]
-                
-                # 2. 分类预测（新鲜度）
                 prediction = class_model.predict(input_data)[0]
                 probabilities = class_model.predict_proba(input_data)[0]
                 probs = dict(zip(class_model.classes_, probabilities))
                 
-                # 将结果存到 session_state
                 st.session_state['results'] = {
                     'pred_L': round(pred_reg[0], 2),
                     'pred_a': round(pred_reg[1], 2),
@@ -121,53 +135,55 @@ with col2:
                 st.error("无法提取膜颜色。")
 
 # ================= 结果展示区 =================
-st.divider()
-
 if 'results' in st.session_state:
     res = st.session_state['results']
     
     st.markdown('<div class="section-title">3. 预测分析报告</div>', unsafe_allow_html=True)
     
-    # 分成两列展示数据
-    r_col1, r_col2 = st.columns(2)
-    
-    with r_col1:
-        with st.container(border=True):
-            st.markdown("**🍅 番茄预期颜色（Lab）**")
+    # 将数据和结论放在一个大的紧凑边框内
+    with st.container(border=True):
+        # 第一行：番茄数据 & 环境数据
+        row1_col1, row1_col2 = st.columns(2)
+        
+        with row1_col1:
+            st.markdown("**番茄预期颜色（Lab 参数）**")
             c1, c2, c3 = st.columns(3)
             c1.metric("L* (亮度)", res['pred_L'])
             c2.metric("a* (红绿)", res['pred_a'])
             c3.metric("b* (黄蓝)", res['pred_b'])
             
-    with r_col2:
-        with st.container(border=True):
-            st.markdown("**🌡️ 反推环境数据**")
+        with row1_col2:
+            st.markdown("**反推环境数据**")
             c4, c5, c6 = st.columns(3)
             c4.metric("CO2浓度 (%)", res['pred_co2'])
             c5.metric("温度 (℃)", res['pred_temp'])
             c6.metric("湿度 (%)", res['pred_hum'])
-    
-    # 新鲜度结果与概率
-    with st.container(border=True):
-        st.markdown("**📊 新鲜度分类评估**")
-        
-        if res['prediction'] == "新鲜":
-            color = "green"
-            status_text = "样本状态良好，符合新鲜标准。"
-        elif res['prediction'] == "可接受":
-            color = "#D97706"
-            status_text = "样本发生轻微衰变，建议尽快食用。"
-        else:
-            color = "red"
-            status_text = "样本已腐败，请勿食用。"
             
-        st.markdown(f"系统判定结果：<span style='color:{color}; font-size: 20px; font-weight: bold;'>{res['prediction']}</span>", unsafe_allow_html=True)
-        st.markdown(f"<span style='color:#64748B;'>{status_text}</span>", unsafe_allow_html=True)
+        st.divider() # 内部细分割线
         
-        st.write("")
-        st.markdown("**分类置信度概率分布**")
-        for state, prob in res['probs'].items():
-            st.progress(float(prob), text=f"{state}: {prob*100:.2f}%")
+        # 第二行：新鲜度结论 & 概率
+        row2_col1, row2_col2 = st.columns([1, 2])
+        
+        with row2_col1:
+            st.markdown("**新鲜度分类评估**")
+            if res['prediction'] == "新鲜":
+                color = "green"
+                status_text = "状态良好，符合新鲜标准。"
+            elif res['prediction'] == "可接受":
+                color = "#D97706"
+                status_text = "轻微衰变，建议尽快食用。"
+            else:
+                color = "red"
+                status_text = "已腐败，请勿食用。"
+                
+            st.markdown(f"系统判定：<span style='color:{color}; font-size: 22px; font-weight: bold;'>{res['prediction']}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:#64748B; font-size: 13px;'>{status_text}</span>", unsafe_allow_html=True)
+            
+        with row2_col2:
+            st.markdown("**分类置信度概率分布**")
+            # 用更紧凑的格式显示进度条
+            for state, prob in res['probs'].items():
+                st.progress(float(prob), text=f"{state}: {prob*100:.2f}%")
             
 else:
     st.info("等待执行预测分析... 请先上传图像并点击上方的“运行模型预测”按钮。")
