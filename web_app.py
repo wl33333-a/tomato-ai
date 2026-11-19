@@ -8,43 +8,17 @@ import os
 # ================= 页面配置 =================
 st.set_page_config(page_title="番茄新鲜度无损预测系统", page_icon="🍅", layout="wide")
 
-# 自定义 CSS 样式（调整字体、去除多余边距、增强边框感）
+# 自定义 CSS 样式
 st.markdown("""
     <style>
-    /* 调整全局字体 */
-    html, body, [class*="css"] {
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    }
-    /* 大标题样式 */
-    .main-title {
-        font-size: 28px;
-        font-weight: 600;
-        color: #1E293B;
-        border-bottom: 2px solid #CBD5E1;
-        padding-bottom: 10px;
-        margin-bottom: 25px;
-    }
-    /* 二级标题样式 */
-    .section-title {
-        font-size: 20px;
-        font-weight: 600;
-        color: #334155;
-        margin-top: 15px;
-        margin-bottom: 10px;
-    }
-    /* 数据标签样式 */
-    .data-label {
-        font-weight: bold;
-        color: #475569;
-    }
-    .data-value {
-        color: #0F172A;
-        font-family: monospace;
-    }
+    html, body, [class*="css"] { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+    .main-title { font-size: 28px; font-weight: 600; color: #1E293B; border-bottom: 2px solid #CBD5E1; padding-bottom: 10px; margin-bottom: 25px; }
+    .section-title { font-size: 20px; font-weight: 600; color: #334155; margin-top: 15px; margin-bottom: 10px; }
+    .data-label { font-weight: bold; color: #475569; }
+    .data-value { color: #0F172A; font-family: monospace; }
     </style>
 """, unsafe_allow_html=True)
 
-# 页面标题
 st.markdown('<div class="main-title">基于智能膜的番茄新鲜度无损预测系统</div>', unsafe_allow_html=True)
 st.markdown("**系统说明**：上传智能膜图像，系统将自动提取颜色特征，并结合机器学习模型，反推番茄的预期颜色（Lab）、环境数据及新鲜度分类。")
 
@@ -102,9 +76,8 @@ with col1:
 
 with col2:
     st.markdown('<div class="section-title">2. 模型预测操作</div>', unsafe_allow_html=True)
-    st.write("点击下方按钮，系统将运行随机森林模型进行多目标预测。")
+    st.write("点击下方按钮，系统将运行随机森林模型进行多目标反推预测。")
     
-    # 占位，让按钮稍微靠下一点对齐
     st.write("") 
     st.write("")
     
@@ -117,25 +90,30 @@ with col2:
             m_lab = get_membrane_lab(img_bytes)
             if m_lab:
                 models = joblib.load(MODEL_PATH)
-                lab_model = models['lab_model']
+                # 【修复报错的核心点：把 lab_model 改为 reg_model】
+                reg_model = models['reg_model'] 
                 class_model = models['class_model']
                 
                 input_data = pd.DataFrame([{
                     '膜_L': m_lab[0], '膜_a': m_lab[1], '膜_b': m_lab[2]
                 }])
                 
-                # 模型推理
-                pred_lab = lab_model.predict(input_data)[0]
+                # 1. 回归预测（同时得出番茄Lab + 环境数据）
+                pred_reg = reg_model.predict(input_data)[0]
+                
+                # 2. 分类预测（新鲜度）
                 prediction = class_model.predict(input_data)[0]
                 probabilities = class_model.predict_proba(input_data)[0]
                 probs = dict(zip(class_model.classes_, probabilities))
                 
-                # 将结果存到 session_state 以便在下方展示
+                # 将结果存到 session_state
                 st.session_state['results'] = {
-                    'pred_L': round(pred_lab[0], 2),
-                    'pred_a': round(pred_lab[1], 2),
-                    'pred_b': round(pred_lab[2], 2),
-                    # 假设你的模型如果还能预测环境，这里可以加上（当前模型代码里是输入的膜，输出番茄Lab和新鲜度）
+                    'pred_L': round(pred_reg[0], 2),
+                    'pred_a': round(pred_reg[1], 2),
+                    'pred_b': round(pred_reg[2], 2),
+                    'pred_co2': round(pred_reg[3], 2),
+                    'pred_temp': round(pred_reg[4], 2),
+                    'pred_hum': round(pred_reg[5], 2),
                     'prediction': prediction,
                     'probs': probs
                 }
@@ -143,31 +121,41 @@ with col2:
                 st.error("无法提取膜颜色。")
 
 # ================= 结果展示区 =================
-st.divider() # 分割线
+st.divider()
 
 if 'results' in st.session_state:
     res = st.session_state['results']
     
     st.markdown('<div class="section-title">3. 预测分析报告</div>', unsafe_allow_html=True)
     
-    # 使用带边框的容器，看起来像表格/报告
-    with st.container(border=True):
-        st.markdown("**番茄颜色（Lab）反推值**")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("L* (亮度)", res['pred_L'])
-        c2.metric("a* (红绿)", res['pred_a'])
-        c3.metric("b* (黄蓝)", res['pred_b'])
+    # 分成两列展示数据
+    r_col1, r_col2 = st.columns(2)
+    
+    with r_col1:
+        with st.container(border=True):
+            st.markdown("**🍅 番茄预期颜色（Lab）**")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("L* (亮度)", res['pred_L'])
+            c2.metric("a* (红绿)", res['pred_a'])
+            c3.metric("b* (黄蓝)", res['pred_b'])
+            
+    with r_col2:
+        with st.container(border=True):
+            st.markdown("**🌡️ 反推环境数据**")
+            c4, c5, c6 = st.columns(3)
+            c4.metric("CO2浓度 (%)", res['pred_co2'])
+            c5.metric("温度 (℃)", res['pred_temp'])
+            c6.metric("湿度 (%)", res['pred_hum'])
     
     # 新鲜度结果与概率
     with st.container(border=True):
-        st.markdown("**新鲜度分类评估**")
+        st.markdown("**📊 新鲜度分类评估**")
         
-        # 根据结果设置不同的文本颜色，但不使用大背景色
         if res['prediction'] == "新鲜":
             color = "green"
             status_text = "样本状态良好，符合新鲜标准。"
         elif res['prediction'] == "可接受":
-            color = "#D97706" # 深橙色
+            color = "#D97706"
             status_text = "样本发生轻微衰变，建议尽快食用。"
         else:
             color = "red"
@@ -179,9 +167,7 @@ if 'results' in st.session_state:
         st.write("")
         st.markdown("**分类置信度概率分布**")
         for state, prob in res['probs'].items():
-            # 使用更细的进度条样式
             st.progress(float(prob), text=f"{state}: {prob*100:.2f}%")
             
 else:
-    # 还没点击预测时显示占位提示
     st.info("等待执行预测分析... 请先上传图像并点击上方的“运行模型预测”按钮。")
