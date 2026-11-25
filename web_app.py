@@ -98,8 +98,10 @@ with col2:
                     '膜_L': m_lab[0], '膜_a': m_lab[1], '膜_b': m_lab[2]
                 }])
                 
-                # 预测
-                pred_rr = reg_model.predict(input_data)[0]
+                # 【核心修复】将预测结果强制转换为浮点数，避免 array 导致 round 报错
+                pred_rr_raw = reg_model.predict(input_data)
+                pred_rr = float(pred_rr_raw[0])
+                
                 prediction = class_model.predict(input_data)[0]
                 probabilities = class_model.predict_proba(input_data)[0]
                 probs = dict(zip(class_model.classes_, probabilities))
