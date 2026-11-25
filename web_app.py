@@ -98,9 +98,10 @@ with col2:
                     '膜_L': m_lab[0], '膜_a': m_lab[1], '膜_b': m_lab[2]
                 }])
                 
-                # 【核心修复】将预测结果强制转换为浮点数，避免 array 导致 round 报错
+                # 【终极安全提取法】：无论模型输出什么形状，都压平成一维并取第一个数
                 pred_rr_raw = reg_model.predict(input_data)
-                pred_rr = float(pred_rr_raw[0])
+                pred_rr_flat = np.ravel(pred_rr_raw)
+                pred_rr = float(pred_rr_flat[0]) if len(pred_rr_flat) > 0 else 0.0
                 
                 prediction = class_model.predict(input_data)[0]
                 probabilities = class_model.predict_proba(input_data)[0]
@@ -127,7 +128,6 @@ else:
 
 # 紧凑的仪表盘面板
 with st.container(border=True):
-    # 第一行：核心指标（呼吸速率 + 新鲜度）
     row1_col1, row1_col2 = st.columns(2)
     
     with row1_col1:
@@ -140,16 +140,15 @@ with st.container(border=True):
             st.markdown(f"<span style='color:#64748B; font-size: 24px; font-weight: bold;'>待预测</span>", unsafe_allow_html=True)
         else:
             if res['prediction'] == "新鲜":
-                color = "#10B981" # 科研常用的绿色
+                color = "#10B981" 
             elif res['prediction'] == "可接受":
-                color = "#F59E0B" # 琥珀色
+                color = "#F59E0B" 
             else:
-                color = "#EF4444" # 红色
+                color = "#EF4444" 
             st.markdown(f"<span style='color:{color}; font-size: 24px; font-weight: bold;'>{res['prediction']}</span>", unsafe_allow_html=True)
         
     st.divider() 
     
-    # 第二行：分类概率分布
     st.markdown("**新鲜度判定置信度**")
     for state, prob in res['probs'].items():
         st.progress(float(prob), text=f"{state}: {prob*100:.2f}%")
